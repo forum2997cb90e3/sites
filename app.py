@@ -3,7 +3,7 @@ from pymongo import MongoClient
 
 app = Flask(__name__)
 
-MONGO_URI = "mongodb://admin:123456qwerty@ac-c4ykybg-shard-00-00.mvdyb6h.mongodb.net:27017,ac-c4ykybg-shard-00-01.mvdyb6h.mongodb.net:27017,ac-c4ykybg-shard-00-02.mvdyb6h.mongodb.net:27017/?ssl=true&replicaSet=atlas-ghgxyu-shard-0&authSource=admin&appName=Cluster0"
+MONGO_URI = "mongodb+srv://admin:123456qwerty@cluster0.mvdyb6h.mongodb.net/?appName=Cluster0"
 
 client = MongoClient(MONGO_URI)
 db = client["bot"]
