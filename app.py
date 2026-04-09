@@ -1342,5 +1342,7 @@ def admin_cabinet(admin_id):
         unban_percent=unban_percent
     )
 
+import os 
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
