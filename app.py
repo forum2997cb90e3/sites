@@ -1,7 +1,9 @@
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, render_template_string, request, jsonify, session, redirect
+import time
 from pymongo import MongoClient
 
 app = Flask(__name__)
+app.secret_key = "super_secret_key_123"
 
 MONGO_URI = "mongodb+srv://admin:123456qwerty@cluster0.mvdyb6h.mongodb.net/?appName=Cluster0"
 
@@ -13,6 +15,347 @@ bans_collection = db["bans"]
 users_collection = db["users"]
 clickers_collection = db["clickers"]
 business_collection = db["business"]
+site_access_collection = db["site_access"]
+auth_logs_collection = db["auth_logs"]
+
+LOGIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            background: #111;
+            position: relative;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: -20%;
+
+            background:
+                repeating-conic-gradient(
+                    from 0deg,
+                    rgba(255,255,255,0.03) 0deg 10deg,
+                    rgba(0,0,0,0) 10deg 20deg
+                );
+
+            border-radius: 50%;
+            transform: scale(1.5);
+            filter: blur(2px);
+            opacity: 0.25;
+
+            z-index: -2;
+        }
+
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+
+            background: rgba(0,0,0,0.55);
+            z-index: -1;
+        }
+
+        .login-wrap {
+            width: 100%;
+            max-width: 470px;
+            padding: 20px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .login-card {
+            position: relative;
+            background: rgba(26, 26, 32, 0.82);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 28px;
+            padding: 95px 34px 28px;
+            box-shadow:
+                0 20px 50px rgba(0,0,0,0.45),
+                inset 0 1px 0 rgba(255,255,255,0.05);
+            backdrop-filter: blur(16px);
+        }
+
+        .login-icon-box {
+            position: absolute;
+            top: -52px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 170px;
+            height: 110px;
+            border-radius: 26px;
+            background: rgba(35, 35, 35, 0.95);
+            border: 1px solid rgba(255,255,255,0.08);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow:
+                0 12px 30px rgba(0,0,0,0.45),
+                0 0 25px rgba(255, 180, 90, 0.15);
+        }
+
+        .login-icon {
+            font-size: 42px;
+            color: #f2f2f2;
+            text-shadow: 0 0 16px rgba(255,255,255,0.12)
+        }
+
+        .lock {
+            margin-left: 8px;
+            color: #ffc57a;
+            text-shadow: 0 0 14px rgba(255, 197, 122, 0.45)
+        }
+
+        .login-title {
+            text-align: center;
+            font-size: 54px;
+            font-weight: bold;
+            color: #f3ece7;
+            margin: 0 0 30px 0;
+            letter-spacing: 1px;
+            text-shadow: 0 0 20px rgba(255,255,255,0.08);
+        }
+
+        .input-box {
+            position: relative;
+            margin-bottom: 18px;
+        }
+
+        .input-box span {
+            position: absolute;
+            left: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 20px;
+            color: rgba(255,255,255,0.65);
+            pointer-events: none;
+        }
+
+        .input-box input {
+            width: 100%;
+            height: 62px;
+            border: 1px solid rgba(255,255,255,0.08);
+            outline: none;
+            border-radius: 18px;
+            background: rgba(20,20,26,0.78);
+            color: #fff;
+            font-size: 17px;
+            padding: 0 18px 0 54px;
+            box-shadow: inset 0 1px 4px rgba(0,0,0,0.35);
+            transition: 0.25s ease;
+        }
+
+        .input-box input::placeholder {
+            color: rgba(255,255,255,0.35);
+        }
+
+        .input-box input:focus {
+            border-color: rgba(255, 187, 102, 0.7);
+            box-shadow:
+                0 0 18px rgba(255, 187, 102, 0.20),
+                inset 0 1px 4px rgba(0,0,0,0.35);
+        }
+
+        .login-btn {
+            width: 100%;
+            height: 64px;
+            border: none;
+            border-radius: 20px;
+            margin-top: 14px;
+            cursor: pointer;
+            font-size: 20px;
+            font-weight: bold;
+            color: #fff4ea;
+            background: linear-gradient(135deg, rgba(40,40,50,0.96), rgba(58,46,42,0.96));
+            box-shadow:
+                0 0 0 1px rgba(255,255,255,0.06),
+                0 0 24px rgba(255, 174, 84, 0.18);
+            transition: 0.25s ease;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-1px);
+            box-shadow:
+                0 0 0 1px rgba(255,255,255,0.08),
+                0 0 30px rgba(255, 174, 84, 0.28);
+        }
+
+        .login-btn:active {
+            transform: scale(0.985);
+        }
+
+        #error {
+            min-height: 24px;
+            margin-top: 18px;
+            text-align: left;
+            color: #ff9d8c;
+            font-size: 16px;
+            padding-left: 4px;
+        }
+
+        @media (max-width: 600px) {
+            .login-title {
+                font-size: 40px;
+            }
+
+            .login-card {
+                padding: 85px 20px 24px;
+                border-radius: 22px;
+            }
+
+            login-icon-box {
+                width: 145px;
+                height: 95px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="login-wrap">
+        <div class="login-card">
+            <div class="login-icon-box">
+                <div class="login-icon">👤<span class="lock">🔒</span></div>
+            </div>
+
+            <h1 class="login-title">Вход</h1>
+
+            <div class="input-box">
+                <span>👤</span>
+                <input id="username" placeholder="Username" autocomplete="username">
+            </div>
+
+            <div class="input-box">
+                <span>🔒</span>
+                <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+            </div>
+
+            <button class="login-btn" onclick="login()">Войти</button>
+
+            <p id="error"></p>
+        </div>
+    </div>
+
+<script>
+    function login() {
+        fetch("/login", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                username: document.getElementById("username").value,
+                password: document.getElementById("password").value
+            })
+        })
+        .then(r => r.json())
+        .then(d => {
+            if (d.success) {
+                location.href = "/";
+            } else {
+                document.getElementById("error").innerText = d.message;
+            }
+        })
+    }
+</script>
+
+</body>
+</html>
+"""
+
+BLOCKED_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Доступ ограничен</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0f1115, #1b1f27, #121418);
+            color: white;
+            padding: 20px;
+        }
+
+        .box {
+            width: 100%;
+            max-width: 560px;
+            background: rgba(20, 20, 28, 0.92);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 24px;
+            padding: 30px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+            text-align: center;
+        }
+
+        .icon {
+            font-size: 56px;
+            margin-bottom: 14px;
+        }
+
+        .title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #ff8f8f;
+            margin-bottom: 16px;
+        }
+
+        .reason {
+            font-size: 18px;
+            color: #f1f1f1;
+            background: rgba(255,255,255,0.05);
+            border-radius: 14px;
+            padding: 16px;
+            margin-top: 18px;
+        }
+
+        .btn {
+            margin-top: 24px;
+            display: inline-block;
+            padding: 12px 18px;
+            border-radius: 12px;
+            text-decoration: none;
+            color: white;
+            background: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <div class="icon">⛔</div>
+        <div class="title">Доступ к сайту ограничен</div>
+        <div>Обратись к владельцу или к старшей администрации</div>
+        <div class="reason">
+            <b>Причина:</b> {{ reason }}
+        </div>
+        <a class="btn" href="/logout">Выйти</a>
+    </div>
+</body>
+</html>
+"""
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -22,10 +365,31 @@ HTML_TEMPLATE = """
     <title>Логи Админов</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body {
+        body { 
             font-family: Arial;
-            margin: 10px; 
-            background: #f7f7f7; 
+            margin: 10px;
+            position: relative;
+            z-index: 0;
+            min-height: 100vh;
+            background: transparent;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: url("/static/bg.png") no-repeat center center;
+            background-size: cover;
+            filter: brightness(0.35) blur(2px);
+            z-index: -2;
+        }
+
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.35);
+            z-index: -1;
         }
         
         h1 { 
@@ -159,11 +523,12 @@ HTML_TEMPLATE = """
         }
 
         .card { 
-            background: #fff; 
-            padding: 10px 15px; 
-            margin: 10px 0; 
-            border-radius: 8px; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            background: rgba(255,255,255,0.90);
+            backdrop-filter: blur(6px);
+            padding: 10px 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0.25);
             text-align: left;
             font-weight: normal;
         }
@@ -267,10 +632,11 @@ HTML_TEMPLATE = """
         }
         
         .admin-panel-box {
-            background: white;
+            background: rgba(255,255,255,0.92);
+            backdrop-filter: blur(6px);
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
         }
         
         .admin-panel-box input {
@@ -370,6 +736,58 @@ HTML_TEMPLATE = """
         .admin-lvl-1 {
             background-color: #222222
         }
+
+        .admin-me {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .admin-me::before {
+            content: "";
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(
+                45deg,
+                red,
+                orange,
+                yellow,
+                green,
+                cyan,
+                blue,
+                violet,
+                red
+            );
+            background-size: 400%;
+            animation: rainbow 6s linear infinite;
+            filter: blur(8px);
+            z-index: 0;
+        }
+
+        .admin-me::after {
+            content: "";
+            position: absolute;
+            inset: 2px;
+            background: inherit;
+            border-radius: 8px;
+            z-index: 1;
+        }
+
+        .admin-me * {
+            position: relative;
+            z-index: 2;
+        }
+
+        @keyframes rainbow {
+            0% { background-position: 0% }
+            100% { background-position: 400% }
+        }
+
+        .you-label {
+            color: #00ff88;
+            font-weight: bold;
+            margin-left: 8px;
+            font-size: 14px;
+        }
         
         #admins-section {
             display: none;
@@ -429,16 +847,28 @@ HTML_TEMPLATE = """
 
     <div id="sidebar" class="sidebar">
         <h2>Меню</h2>
-        <a href="javascript:void(0)" onclick="showSection('logs')">📜 Админ логи</a>
+
+        {% if session.get('lvl', 0) >= 3 %}
+            <a href="javascript:void(0)" onclick="showSection('logs')">📜 Админ логи</a>
+        {% endif %}
+
         <a href="javascript:void(0)" onclick="showSection('bans')">🚫 Список банов</a>
         <a href="javascript:void(0)" onclick="showSection('admins')">👮 Список администраторов</a>
         <a href="javascript:void(0)" onclick="showSection('users')">👤 Список пользователей</a>
-        <a href="javascript:void(0)" onclick="showSection('admin-panel')">⚙️ Админ панель</a>
+
+        {% if session.get('lvl', 0) >= 3 %}
+            <a href="javascript:void(0)" onclick="showSection('admin-panel')">⚙️ Админ панель</a>
+        {% endif %}
+
+        {% if session.get('lvl', 0) >= 4 %}
+            <a href="javascript:void(0)" onclick="showSection('auth-logs')">🔐 Логи авторизайций</a>
+        {% endif %}
     </div>
 
     <div id="overlay" class="overlay" onclick="toggleMenu()"></div>
 
-    <div id="logs-section">
+    {% if session.get('lvl') >= 1 %}
+    <div id="logs-section" style="display:none;">
         <h1>Логи Админов</h1>
 
         <div class="refresh">
@@ -447,8 +877,8 @@ HTML_TEMPLATE = """
 
         <div class="cards-container">
             {% for log in logs %}
+                {% set action_lower = log.action|lower %}
                 <div class="card
-                    {% set action_lower = log.action.lower() %}
                     {% if 'разбан' in action_lower and 'топ' not in action_lower %}unban
                     {% elif 'бан' in action_lower and 'топ' not in action_lower %}ban
                     {% else %}other{% endif %}">
@@ -467,6 +897,7 @@ HTML_TEMPLATE = """
             {% endfor %}
         </div>
     </div>
+    {% endif %}
 
     <div id="bans-section" style="display:none;">
         <h1>Список забаненых пользователей</h1>
@@ -478,12 +909,30 @@ HTML_TEMPLATE = """
                         Причина: {{ ban.reason }}
                     </div>
 
+                    {% if session.get('lvl', 0) > 1 %}
                     <button class="btn-unban" onclick="confirmUnban('{{ ban.user_id }}')">
                         Разбанить
                     </button>
+                    {% endif %}
                 </div>
             {% else %}
                 <p>Список банов пуст</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div id="auth-logs-section" style="display:none;">
+        <h1>Логи Авторизаций</h1>
+
+        <div class="cards-container">
+            {% for log in auth_logs %}
+                <div class="card">
+                    <div><b>Username:</b> {{ log.username }}</div>
+                    <div><b>id:</b> {{ log.user_id }}</div>
+                    <div><b>time:</b> {{ log.time }}</div>
+                </div>
+            {% else %}
+                <p>Логи авторизаций пустые</p>
             {% endfor %}
         </div>
     </div>
@@ -492,10 +941,51 @@ HTML_TEMPLATE = """
         <h1>Список администрараторов</h1>
         <div class="admins-container">
             {% for admin in admins %}
-                <div class="card admin-card admin-lvl-{{ admin.lvl }}">
-                    <div><b>ID:</b> {{ admin.user_id }}</div>
-                    <div><b>Username:</b> {{ admin.username }}</div>
-                    <div><b>Lvl:</b> {{ admin.lvl }}</div>
+                <div class="card admin-card admin-lvl-{{ admin.lvl }}
+                    {% if admin.user_id|string == session.get('user_id')|string %}
+                        admin-me
+                    {% endif %}
+                ">
+
+                    <div class="user-row">
+
+                        <div>
+                            <div><b>ID:</b> {{ admin.user_id }}</div>
+                            <div>
+                                <b>Username:</b> {{ admin.username }}
+
+                            {% if admin.user_id|string == session.get('user_id')|string %}
+                                <span class="you-label">Это ты</span>
+                            {% endif %}
+                            </div>
+
+                            <div><b>lvl:</b> {{ admin.lvl }}</div>
+                        </div>
+
+                        <div class="user-actions">
+
+                            {% if session.get('lvl')|int >= 4 %}
+
+                                {% if session.get('lvl')|int == 4 and admin.lvl == 1 %}
+                                    <button class="btn-delete"
+                                        onclick="removeAdminFromList('{{ admin.user_id }}')">
+                                        снять
+                                    </button>
+                                {% endif %}
+
+                                {% if session.get('lvl')|int >= 5 %}
+                                    <button class="btn-delete"
+                                        onclick="removeAdminFromList('{{ admin.user_id }}')">
+                                        снять
+                                    </button>
+                                {% endif %}
+                            
+                            {% endif %}
+                        
+                        </div>
+                    
+                    </div>
+
                 </div>
             {% else %}
                 <p>Список админов не был найден</p>
@@ -526,14 +1016,18 @@ HTML_TEMPLATE = """
                     <div><b>Exp:</b> {{ user.business_exp }}</div>
                     <div><b>Money:</b> {{ user.business_money }}</div>
                  
-                <div class="user-actions">   
+                <div class="user-actions">
+                    {% if session.get('lvl', 0) >= 3 %}
                     <button class="btn-ban" onclick="confirmBan('{{ user.user_id }}')">
                         Забанить
                     </button>
+                    {% endif %}
                 
+                    {% if session.get('lvl', 0) >= 5 %}
                     <button class="btn-delete" onclick="confirmDeleteAccount('{{ user.user_id }}')">
                         Удалить аккаунт пользователя
                     </button>
+                    {% endif %}
                 </div>
                 
                 </div>
@@ -543,6 +1037,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
     
+    {% if session.get('lvl', 0) > 1 %}
     <div id="admin-panel-section" style="display:none;">
         <h1>Админ панель</h1>
         <div class="admin-panel-box">
@@ -560,8 +1055,40 @@ HTML_TEMPLATE = """
             <br>
             
             <button onclick="confirmBanFromPanel()">Ban</button>
+
+            {% if session.get('lvl', 0) >= 4 %}
+
+            <hr style="margin:20px 0;">
+
+            <h3>Управление администраторами</h3>
+
+            <input type="number" id="admin-user-id" placeholder="User Id">
+            <br><br>
+
+            <button onclick="openGiveAdmin()">Назначить администратора</button>
+            <button onclick="removeAdmin()">Снять администратора</button>
+
+            {% endif %}
+
+            {% if session.get('lvl', 0) >= 5 %}
+
+            <hr style="margin:20px 0;">
+
+            <h3>Ограничение на сайте</h3>
+
+            <input type="number" id="restrict-user-id" placeholder="User id">
+            <br>
+
+            <textarea id="restrict-reason" placeholder="Причина ограничения" style="width:100%; max-width:400px; height:90px; margin-top:10px; border-radius:6px; padding:10px;"></textarea>
+            <br><br>
+
+            <button onclick="restrictSiteAccess()">Ограничить</button>
+            <button onclick="unrestrictSiteAccess()">Снять ограничение</button>
+
+            {% endif %}
         </div>
     </div>
+    {% endif %}
                 
     <div class="confirm-popup" id="confirm-popup">
         <p id="confirm-text"></p>
@@ -602,11 +1129,31 @@ HTML_TEMPLATE = """
         }
 
         function showSection(section) {
-            document.getElementById("logs-section").style.display = (section === 'logs') ? 'block' : 'none';
-            document.getElementById("bans-section").style.display = (section === 'bans') ? 'block' : 'none';
-            document.getElementById("admins-section").style.display = (section === 'admins') ? 'block' : 'none';
-            document.getElementById("users-section").style.display = (section === 'users') ? 'block' : 'none';
-            document.getElementById("admin-panel-section").style.display = (section === 'admin-panel') ? 'block' : 'none';
+            const lvl = Number("{{ session.get('lvl', 0) }}");
+
+            if (
+                (lvl < 3 && (section === 'logs' || section === 'admin-panel')) ||
+                (lvl < 4 && section === 'auth-logs')
+            ) {
+                showNotification("Нет доступа", true);
+                toggleMenu();
+                return;
+            }
+
+            const logsSection = document.getElementById("logs-section");
+            const bansSection = document.getElementById("bans-section");
+            const adminsSection = document.getElementById("admins-section");
+            const usersSection = document.getElementById("users-section");
+            const adminPanelSection = document.getElementById("admin-panel-section");
+            const authLogsSection = document.getElementById("auth-logs-section");
+
+            if (logsSection) logsSection.style.display = (section === 'logs') ? 'block' : 'none';
+            if (bansSection) bansSection.style.display = (section === 'bans') ? 'block' : 'none';
+            if (adminsSection) adminsSection.style.display = (section === 'admins') ? 'block' : 'none';
+            if (usersSection) usersSection.style.display = (section === 'users') ? 'block' : 'none';
+            if (adminPanelSection) adminPanelSection.style.display = (section === 'admin-panel') ? 'block' : 'none';
+            if (authLogsSection) authLogsSection.style.display = (section === 'auth-logs') ? 'block' : 'none'
+
             toggleMenu();
         }
 
@@ -761,7 +1308,135 @@ HTML_TEMPLATE = """
             
             document.getElementById("ban-popup").style.display = "block";
         }
+
+        function openGiveAdmin() {
+            const userId = document.getElementById("admin-user-id").value.trim();
+
+            if (!userId || isNaN(userId)) {
+                showNotification("Не введен ид", true);
+                return;
+            }
+
+            const lvl = prompt("Введи лвл администратора");
+
+            if (!lvl || isNaN(lvl)) {
+                showNotification("числом", true);
+                return;
+            }
+
+            fetch("/give_admin", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    user_id: userId,
+                    lvl: lvl
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                showNotification(data.message);
+            })
+        }
+
+        function removeAdmin() {
+            const userId = document.getElementById("admin-user-id").value.trim();
+            
+            if (!userId || isNaN(userId)) {
+                showNotification("числом", true);
+                return;
+            }
+            
+            fetch("/remove_admin", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    user_id: userId
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                showNotification(data.message);
+            });
+        }
+
+        function removeAdminFromList(userId) {
+            if (!confirm("Снять администратора " + userId + "?")) return;
+
+            fetch("/remove_admin", {
+                method: "POST", 
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ user_id: userId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                showNotification(data.message);
+                setTimeout(() => location.reload(), 1000);
+            });
+        }
+
+        function restrictSiteAccess() {
+            const userId = document.getElementById("restrict-user-id").value.trim();
+            const reason = document.getElementById("restrict-reason").value.trim();
+
+            if (!userId || isNaN(userId)) {
+                showNotification("числом", true);
+                return;
+            }
+
+            if (!reason) {
+                showNotification("причина", true);
+                return;
+            }
+
+            fetch("/restrict_site_access", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    user_id: userId,
+                    reason: reason
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                showNotification(data.message, !data.message.includes("ограничен"));
+            });
+        }
+
+        function unrestrictSiteAccess() {
+            const userId = document.getElementById("restrict-user-id").value.trim();
+
+            if (!userId || isNaN(userId)) {
+                showNotification("числом", true);
+                return;
+            }
+
+            fetch("/unrestrict_site_access", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    user_id: userId
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                showNotification(data.message, false);
+            });
+        }
     </script>
+
+    <div style="
+    position:fixed;
+    bottom:10px;
+    right: 10px;
+    background: #111;
+    color: white;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 14px;
+    ">
+    admin username: {{ session['username'] }}<br>
+    lvl dostup: {{ session['lvl'] }}
+    </div> 
 
 </body>
 </html>
@@ -1014,10 +1689,12 @@ ADMIN_CABINET_TEMPLATE = """
                     <div class="cabinet-line"></div>
                 </a>
                 
+                {% if session.get('lvl', 0) >= 4 %}
                 <a href="/admin/{{ admin_id }}?tab=manage" class="cabinet-line-item {% if active_tab == 'manage' %}active{% endif %}">
                     <div class="cabinet-line-label">Управление</div>
                     <div class="cabinet-line"></div>
                 </a>
+                {% endif %}
                 
                 <a href="/admin/{{ admin_id }}?tab=charts" class="cabinet-line-item {% if active_tab == 'charts' %}active{% endif %}">
                     <div class="cabinet-line-label">Диограммы</div>
@@ -1067,34 +1744,148 @@ ADMIN_CABINET_TEMPLATE = """
                 <p>Баны: {{ bans_count }} ({{ ban_percent }}%)</p>
                 <p>Разбаны: {{ unbans_count }} ({{ unban_percent }}%)</p>
             </div>
-            
-            {% else %} 
-            
-            <div class="disabled-block">Скоро</div>
-            
+
+            {% elif active_tab == 'manage' %}
+
+            <div class="admin-panel-box">
+                <h2>Управление</h2>
+
+                <div style="font-size:18px; margin-bottom:15px;">
+                    Администратор: <b>{{ admin_username }}</b><br>
+                    ид: <b>{{ admin_id }}</b>
+                </div>
+
+                {% if session.get('lvl', 0) >= 5 %}
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:15px;">
+                        <button onclick="promoteAdmin('{{ admin_id }}')">Повысить</button>
+                        <button onclick="demoteAdmin('{{ admin_id }}')">Понизить</button>
+                    </div>
+                {% else %}
+                    <div class="disabled-block">Нет доступа</div>
+                {% endif %}
+            </div>
+
             {% endif %}
-            
+
         </div>
     </div>
+
+    <script>
+        function promoteAdmin(adminId) {
+            fetch("/promote_admin", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ user_id: adminId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                location.reload();
+            });
+        }
+
+        function demoteAdmin(adminId) {
+            fetch("/demote_admin", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ user_id: adminId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                location.reload();
+            });
+        }
+    </script>
 </body>
 </html>
 """
 
+def check_lvl(min_lvl):
+    if not check_auth():
+        return False
+    return int(session.get("lvl", 0)) >= min_lvl
+
+def check_auth():
+    if "user_id" not in session:
+        return False
+    
+    if time.time() - session.get("time", 0) > 900:
+        session.clear()
+        return False
+    
+    session["time"] = time.time()
+    return True
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return render_template_string(LOGIN_TEMPLATE)
+    
+    data = request.get_json()
+    username = data.get("username")
+    password = data.get("password")
+
+    user = site_access_collection.find_one({"username": username})
+
+    if not user or user.get("password") != password:
+        return jsonify({"success": False, "message": "Таких данных нет"})
+    
+    session["user_id"] = str(user["user_id"])
+    session["username"] = user["username"]
+    session["lvl"] = user.get("lvl", 0)
+    session["time"] = time.time()
+    session["site_blocked"] = bool(user.get("site_blocked", False))
+    session["site_block_reason"] = str(user.get("site_block_reason", ""))
+
+    auth_logs_collection.insert_one({
+        "username": str(user.get("username", "")),
+        "user_id": str(user.get("user_id", "")),
+        "time": time.strftime("%d.%m.%Y %H:%M:%S")
+    })
+
+    return jsonify({"success": True})
+
 @app.route("/", methods=["GET"])
 def index():
+    if not check_auth():
+        return redirect("/login")
+    
+    if session.get("site_blocked", False):
+        return render_template_string(
+            BLOCKED_TEMPLATE,
+            reason=session.get("site_block_reason", "нет")
+        )
+    
     logs = []
 
-    for log in logs_collection.find():
-        action_text = str(log.get("action", ""))
+    if check_lvl(3):
+        for log in logs_collection.find():
+            action_text = str(log.get("action", ""))
 
-        logs.append({
-            "admin_id": str(log.get("admin_id", "")),
-            "admin_username": str(log.get("admin_username", "")),
-            "target_id": str(log.get("target_id", "")),
-            "target_username": str(log.get("target_username", "")),
-            "action": str(log.get("action", "")),
-            "time": str(log.get("time", ""))
-        })
+            logs.append({
+                "admin_id": str(log.get("admin_id", "")),
+                "admin_username": str(log.get("admin_username", "")),
+                "target_id": str(log.get("target_id", "")),
+                "target_username": str(log.get("target_username", "")),
+                "action": str(log.get("action", "")),
+                "time": str(log.get("time", ""))
+            })
+
+    auth_logs = []
+    
+    if check_lvl(4):
+        for log in auth_logs_collection.find().sort("_id", -1).limit(100):
+            auth_logs.append({
+                "username": str(log.get("username", "")),
+                "user_id": str(log.get("user_id", "")),
+                "time": str(log.get("time", ""))
+            })
 
     bans = []
 
@@ -1109,12 +1900,27 @@ def index():
 
     admins = []
 
+    my_id = session.get("user_id")
+
+    my_admin = None
+    other_admins = []
+
     for user in users_collection.find({"lvl": {"$gt": 0}}).sort("lvl", -1):
-        admins.append({
+        admin_data = {
             "user_id": str(user.get("user_id", "")),
             "username": str(user.get("username", "")),
             "lvl": int(user.get("lvl", 0))
-        })
+        }
+
+        if str(user.get("user_id")) == str(my_id):
+            my_admin = admin_data
+        else:
+            other_admins.append(admin_data)
+    
+    if my_admin:
+        admins.append(my_admin)
+
+    admins.extend(other_admins)
 
     users = []
 
@@ -1151,13 +1957,68 @@ def index():
     return render_template_string(
         HTML_TEMPLATE,
         logs=logs,
+        auth_logs=auth_logs,
         bans=bans,
         admins=admins,
         users=users,
     )
 
+@app.route("/remove_admin", methods=["POST"])
+def remove_admin():
+    if not check_lvl(4):
+        return jsonify({"message": "Нет доступа"})
+    
+    data = request.get_json()
+    user_id = data.get("user_id")
+
+    try:
+        user_id_int = int(user_id)
+    except:
+        return jsonify({"message": "числом"})
+    
+    user = users_collection.find_one({
+        "$or": [{"user_id": user_id_int}, {"user_id": str(user_id)}]
+    })
+
+    if not user:
+        return jsonify({"message": "Пользователь не найден"})
+    
+    if str(user_id) == "8617037882":
+        return jsonify({"message": "Нельзя"})
+    
+    if str(user_id) == session.get("user_id"):
+        return jsonify({"message": "Нельзя снять себя"})
+    
+    current_lvl = int(user.get("lvl", 0))
+    my_lvl = int(session.get("lvl", 0))
+
+    if my_lvl == 4:
+        if current_lvl != 1:
+            return jsonify({"message": "Ты можешь снять только 1 лвл админа"})
+        
+    elif my_lvl >= 5:
+        pass
+
+    else:
+        return jsonify({"message": "Нет доступа"})
+    
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"lvl": 0}}
+    )
+
+    site_access_collection.update_many(
+        {"user_id": {"$in": [user_id_int, str(user_id)]}},
+        {"$set": {"lvl": 0}}
+    )
+
+    return jsonify({"message": f"{user_id} был снят с поста администратора"})
+
 @app.route("/unban", methods=["POST"])
 def unban_user():
+    if not check_lvl(2):
+        return jsonify({"message": "Нет доступа"})
+    
     data = request.get_json()
     user_id = data.get("user_id")
 
@@ -1177,9 +2038,182 @@ def unban_user():
         return jsonify({"message": f"Пользователь {user_id} разбанен"})
     else:
         return jsonify({"message": "Пользователь не найден"})
+    
+@app.route("/unrestrict_site_access", methods=["POST"])
+def unrestrict_site_access():
+    if not check_lvl(5):
+        return jsonify({"message": "нет доступа"})
+    
+    data = request.get_json()
+    user_id = data.get("user_id")
+
+    if not user_id:
+        return jsonify({"message": "юзер ид не был указан"})
+    
+    try:
+        user_id_int = int(user_id)
+    except:
+        return jsonify({"message": "ид должен быть числом"})
+    
+    target = site_access_collection.find_one({
+        "user_id": {"$in": [user_id_int, str(user_id)]}
+    })
+
+    if not target:
+        return jsonify({"message": "Пользователь не зарегестрирован как администратор"})
+    
+    site_access_collection.update_many(
+        {"user_id": {"$in": [user_id_int, str(user_id)]}},
+        {
+            "$set": {
+                "site_blocked": False,
+                "site_block_reason": ""
+            }
+        }
+    )
+
+    return jsonify({"message": f"{user_id} получил доступ к сайту, снова"})
+    
+@app.route("/demote_admin", methods=["POST"])
+def demote_admin():
+    if not check_lvl(5):
+        return jsonify({"message": "нет доступа"})
+    
+    data = request.get_json()
+    user_id = data.get("user_id")
+
+    try:
+        user_id_int = int(user_id)
+    except:
+        return jsonify({"message": "числом"})
+    
+    user = users_collection.find_one({
+        "$or": [{"user_id": user_id_int}, {"user_id": str(user_id)}]
+    })
+
+    if not user:
+        return jsonify({"message": "пользователь не существует"})
+    
+    if str(user_id) == session.get("user_id"):
+        return jsonify({"message": "нельзя менять свой лвл"})
+    
+    my_lvl = int(session.get("lvl", 0))
+    target_lvl = int(user.get("lvl", 0))
+
+    if target_lvl >= my_lvl:
+        return jsonify({"message": "нельзя менять выше или равного себе"})
+    
+    if target_lvl <= 0:
+        return jsonify({"message": "не является администратором"})
+    
+    new_lvl = target_lvl - 1
+
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"lvl": new_lvl}}
+    )
+
+    site_access_collection.update_many(
+        {"user_id": {"$in": [user_id_int, str(user_id)]}},
+        {"$set": {"lvl": new_lvl}}
+    )
+
+    return jsonify({"message": f"понижен на {new_lvl}"})
+    
+@app.route("/give_admin", methods=["POST"])
+def give_admin():
+    if not check_lvl(4):
+        return jsonify({"message": "нет доступа"})
+    
+    data = request.get_json()
+    user_id = data.get("user_id")
+    lvl = int(data.get("lvl", 0))
+
+    try:
+        user_id_int = int(user_id)
+    except:
+        return jsonify({"message": "числом"})
+    
+    user = users_collection.find_one({
+        "$or": [{"user_id": user_id_int}, {"user_id": str(user_id)}]
+    })
+
+    if not user:
+        return jsonify({"message": "пользователь не существует"})
+    
+    if str(user_id) == session.get("user_id"):
+        return jsonify({"message": "нельзя менять свой лвл"})
+    
+    current_lvl = int(user.get("lvl", 0))
+    my_lvl = int(session.get("lvl", 0))
+
+    if my_lvl == 4:
+        if lvl != 1:
+            return jsonify({"message": "администратор может выдавать только 1 лвл"})
+        if current_lvl > 0:
+            return jsonify({"message": "уже является администратором"})
+        
+    elif my_lvl >= 5:
+        if lvl < 1 or lvl > 5:
+            return jsonify({"message": "от 1 до 5"})
+        
+    else:
+        return jsonify({"message": "нет доступа"})
+    
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"lvl": lvl}}
+    )
+
+    return jsonify({"message": f"выдано {lvl} лвл пользователю {user_id}"})
+
+@app.route("/restrict_site_access", methods=["POST"])
+def restrict_site_access():
+    if not check_lvl(5):
+        return jsonify({"message": "нет доступа"})
+    
+    data = request.get_json()
+    user_id = data.get("user_id")
+    reason = str(data.get("reason", "")).strip()
+
+    if not user_id:
+        return jsonify({"message": "не указан ид"})
+    
+    if not reason:
+        return jsonify({"message": "причина"})
+    
+    try:
+        user_id_int = int(user_id)
+    except:
+        return jsonify({"message": "числом"})
+    
+    target = site_access_collection.find_one({
+        "user_id": {"$in": [user_id_int, str(user_id)]}
+    })
+
+    if not target:
+        return jsonify({"message": "пользователь не найден"})
+    
+    if str(user_id) == session.get("user_id"):
+        return jsonify({"message": "нельзя ограничить себя"})
+    
+    site_access_collection.update_many(
+        {"user_id": {"$in": [user_id_int, str(user_id)]}},
+        {
+            "$set": {
+                "site_blocked": True,
+                "site_block_reason": reason
+            }
+        }
+    )
+
+    return jsonify({"message": f"{user_id} больше не может пользоватся сайтом"})
 
 @app.route("/ban", methods=["POST"])
 def ban_user():
+    if not check_lvl(3):
+        return jsonify({"message": "Нет доступа"})
+    
     data = request.get_json()
     user_id = data.get("user_id")
     reason = data.get("reason", "")
@@ -1209,8 +2243,57 @@ def ban_user():
 
     return jsonify({"message": f"Пользователь {user_id} забанен"})
 
+@app.route("/promote_admin", methods=["POST"])
+def promote_admin():
+    if not check_lvl(5):
+        return jsonify({"message": "нет доступа"})
+    
+    data = request.get_json()
+    user_id = data.get("user_id")
+
+    try:
+        user_id_int = int(user_id)
+    except:
+        return jsonify({"message": "ид должен быть числом"})
+    
+    user = users_collection.find_one({
+        "$or": [{"user_id": user_id_int}, {"user_id": str(user_id)}]
+    })
+
+    if not user:
+        return jsonify({"message": "юзер не найден"})
+    
+    if str(user_id) == session.get("user_id"):
+        return jsonify({"message": "нельзя менять свой лвл администратора"})
+    
+    my_lvl = int(session.get("lvl", 0))
+    target_lvl = int(user.get("lvl", 0))
+
+    if target_lvl >= my_lvl:
+        return jsonify({"message": "нельзя повысить выше или равного себе"})
+    
+    if target_lvl >= 5:
+        return ({"message": "максимальный лвл"})
+    
+    new_lvl = target_lvl + 1
+
+    users_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"lvl": new_lvl}}
+    )
+
+    site_access_collection.update_many(
+        {"user_id": {"$in": [user_id_int, str(user_id)]}},
+        {"$set": {"lvl": new_lvl}}
+    )
+
+    return jsonify({"message": f"{new_lvl} был выдан"})
+
 @app.route("/find_user_id", methods=["POST"])
 def find_user_id():
+    if not check_lvl(3):
+        return jsonify({"success": False, "message": "Нет доступа"})
+    
     data =  request.get_json()
     username = str(data.get("username", "")).strip()
 
@@ -1235,6 +2318,9 @@ def find_user_id():
 
 @app.route("/delete_account", methods=["POST"])
 def delete_account():
+    if not check_lvl(5):
+        return jsonify({"message": "Нет доступа"})
+    
     data = request.get_json()
     user_id = data.get("user_id")
 
@@ -1275,7 +2361,15 @@ def delete_account():
 
 @app.route("/admin/<admin_id>", methods=["GET"])
 def admin_cabinet(admin_id):
+    if not check_auth():
+        return redirect("/login")
+    if not check_lvl(2):
+        return redirect("/")
+    
     active_tab = request.args.get("tab", "logs")
+
+    if active_tab == "manage" and not check_lvl(4):
+        return redirect(f"/admin/{admin_id}?tab=logs")
 
     query_ids = [admin_id]
     if admin_id.isdigit():
